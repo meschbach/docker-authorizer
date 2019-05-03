@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -29,7 +31,7 @@ func main()  {
 	r := mux.NewRouter()
 	r.HandleFunc("/", service.ClientInfo())
 
-	addr := "127.0.0.1:8000"
+	addr := "0.0.0.0:8000"
 	srv := &http.Server{
 		Handler:      r,
 		Addr:         addr,
@@ -42,31 +44,72 @@ func main()  {
 
 
 func (service *DockerAuthorizer) ClientInfo() http.HandlerFunc {
+	config := vault.DefaultConfig()
+	client, err := vault.NewClient(config)
+	if err != nil {
+		panic(err)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		containers, err := service.dockerEngine.ContainerList(context.Background(), types.ContainerListOptions{})
+		//Figure out the IP address of the request
+		requestIP, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
-			panic(err)
-		}
-
-		for _,  _ = range containers {
-			//for _, container := range containers {
-			//id := container.ID
-			//image := container.Image
-			//ip := container.NetworkSettings.Networks["bridge"].IPAddress
-		}
-
-		config := vault.DefaultConfig()
-		client, err := vault.NewClient(config)
-		secret, err := client.Logical().Read("secret/data/" + service.kvPrefix + "/example" )
-		if err != nil {
-			fmt.Printf("Errror communicating with Vault %s", err)
-			fmt.Fprint(w, err)
+			http.Error(w,"400 Bad Remote Address", 400)
 			return
 		}
-		fmt.Println(secret)
-		//data := secret.Data["data"].(map[string]interface{})
-		//fmt.Println(data["test"])
-		//value := data["test"].(string)
+
+		//Find containers matching the IP address
+		containers, err := service.dockerEngine.ContainerList(context.Background(), types.ContainerListOptions{})
+		if err != nil {
+			fmt.Fprint(os.Stderr, "Error retrieving Docker containers", err)
+			http.Error(w, "403 Unauthorized", 403)
+			return
+		}
+
+		match := make([]string,0)
+		for _, container := range containers {
+			role, ok := container.Labels["org.meschbach/docker-authorizer/role"]
+			if !ok {
+				continue
+			}
+
+			//Extract role configuration
+			config, err := client.Logical().Read("secret/data/" + service.kvPrefix + "/" + role )
+			if err != nil {
+				fmt.Printf("Errror communicating with Vault %s", err)
+				continue
+			}
+			if config == nil {
+				fmt.Println("No configuration for role")
+				continue
+			}
+
+			data := config.Data["data"].(map[string]interface{})
+			network := data["network"].(string)
+
+			//Check the requesting address is the same as the client
+			containerIP := container.NetworkSettings.Networks[network].IPAddress
+			if requestIP != containerIP {
+				fmt.Println("IP %s does not match container %s", requestIP, containerIP)
+				continue
+			}
+
+			//Verify the container matches the role
+			if data["image"] != container.Image {
+				fmt.Println("Image %s does not match recorded image", container.Image, data["image"])
+				continue
+			}
+
+			//id := container.ID
+
+			match = append(match, data["policies"].(string))
+		}
+		if len(match) == 0 {
+			fmt.Println("Request does not match any containers")
+			http.Error(w, "401 Not Match", 401)
+			return
+		}
+		matchingRole := match[0]
 
 		wrappingClient, err := client.Clone()
 		wrappingClient.SetWrappingLookupFunc(
@@ -76,7 +119,7 @@ func (service *DockerAuthorizer) ClientInfo() http.HandlerFunc {
 		)
 		renewable := false
 		tokenCreate := vault.TokenCreateRequest{
-			Policies: []string{"default"},
+			Policies: []string{matchingRole},
 			NumUses: 1,
 			TTL: "5m",
 			ExplicitMaxTTL: "5m",
@@ -84,7 +127,11 @@ func (service *DockerAuthorizer) ClientInfo() http.HandlerFunc {
 		}
 		vaultAuth := wrappingClient.Auth()
 		vaultToken := vaultAuth.Token()
-		token, _ := vaultToken.Create(&tokenCreate)
-		fmt.Fprintln(w,token.WrapInfo.Token, "\n",token.WrapInfo.WrappedAccessor)
+		token, err := vaultToken.Create(&tokenCreate)
+		if err != nil {
+			http.Error(w, "503 Internal Error", 503)
+			return
+		}
+		fmt.Fprintln(w,token.WrapInfo.Token)
 	}
 }
