@@ -38,7 +38,7 @@ func main()  {
 		WriteTimeout: 2 * time.Second,
 		ReadTimeout:  2 * time.Second,
 	}
-	fmt.Println("Listening at ", addr )
+	fmt.Printf("Listening at %s\n", addr )
 	log.Fatal(srv.ListenAndServe())
 }
 
