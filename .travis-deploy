@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "Deploying $TRAVIS_BRANCH"
+
 tag_name=$TRAVIS_BRANCH
 if [ "$TRAVIS_BRANCH" = "master" ] ; then
     echo "On master, using latest tag."
