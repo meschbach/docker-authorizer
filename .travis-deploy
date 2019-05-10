@@ -2,8 +2,11 @@
 
 tag_name=$TRAVIS_BRANCH
 if [ "$TRAVIS_BRANCH" = "master" ] ; then
+    echo "On master, using latest tag."
   tag_name="latest"
 fi
 
+echo "Authorizing"
 echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+echo "Pushing"
 docker push meschbach/docker-authorizer:$TRAVIS_BRANCH
