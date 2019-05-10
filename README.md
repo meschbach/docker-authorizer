@@ -14,6 +14,20 @@ use the client address to find the container from the local Docker instance.  A 
 `org.meschbach/docker-authorizer/role` on an expected _network_ will be given a [wrapped response](https://www.vaultproject.io/docs/concepts/response-wrapping.html)
 to retrieve a token.
 
+### Stored Role Information
+
+The _authorizer_ expects authorizing system data to stored in a _KV version 2_ store under `secret/docker/{role}`.  A
+role will contain the following keys:
+
+* `network` (`string`): The network the requesting network _must_ be attached to in order to be authorized.
+* `image` (`string`): The container which must be making the request.
+* `policies` (`string`): The policy name which the wrapped response will contain a token for.
+
+### Configuring the authorizer
+
+Both _Docker_ and _Vault_ libraries are initialized via normal means.  This means all the normal client settings maybe
+effected via the environment variables.
+
 ## Constraints
 
 * *Direct Container <-> Authorizer Connection* The authorizer utilizes the requesting address to verify the container is
