@@ -1,0 +1,7 @@
+addons:
+  apt:
+    packages:
+      - docker-ce
+
+script:
+  - "docker build -t meschbach/docker-authorizer:$TRAVIS_BRANCH ."
