@@ -5,3 +5,9 @@ addons:
 
 script:
   - "docker build -t meschbach/docker-authorizer:$TRAVIS_BRANCH ."
+
+deploy:
+  provider: script
+  script: .travis-deploy
+  on:
+    branch: master
